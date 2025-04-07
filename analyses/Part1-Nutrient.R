@@ -1,0 +1,78 @@
+# Part 2: Nutrient level
+
+## Load data
+nutrient_level <- read_excel("your/working/directory/analysis_data2.xlsx", sheet = "nutrient_level")
+
+# Library
+library(tidyverse)
+library(ggpubr)
+library(patchwork)
+library(dlookr)
+
+### NH4 and NO3 in treatment tank
+nutrient_level <- nutrient_level %>%
+  unite("trtmnt", par:Nutrient, remove=FALSE)
+
+#name trtmnt as factor
+nutrient_level$trtmnt <- as.factor(nutrient_level$trtmnt)
+
+#nutrient level, "before", by date
+nutrient_level %>% filter(before_after %in% "before") %>%
+  group_by (date) %>%
+  describe () %>%
+  mutate (mean = round(mean,3)) %>%
+  select (described_variables, date, mean)
+
+#nutrient level, "after", by date
+nutrient_level %>% filter(before_after %in% "after") %>%
+  group_by (date, Nutrient) %>%
+  describe () %>%
+  mutate (mean = round(mean,3)) %>%
+  select (described_variables, date, Nutrient, mean)
+
+#nutrient level, overall, ambient
+nutrient_level %>% 
+  filter(date > as.Date("2023-08-18") & before_after%in% "before") %>%
+  describe () %>%
+  mutate (mean = round(mean,3))
+
+#nutrient level, overall, enriched
+nutrient_level %>% 
+  filter(date > as.Date("2023-08-18") & before_after%in% "after") %>%
+  group_by(Nutrient) %>%
+  describe () %>%
+  mutate (mean = round(mean,3))
+
+#filter only after 2023-08-18, and only use "after"
+nutrient_level_after <- nutrient_level %>% 
+  filter(date > as.Date("2023-08-18") & before_after%in% "after")
+
+#descriptive stats
+nutrient_level_after %>%
+  group_by(Nutrient) %>%
+  describe () %>%
+  mutate (mean = round(mean,3))
+
+#to show nutrient level after enriched
+s1a <- ggplot(nutrient_level_after, aes(x = factor(date), 
+                                                  y = NH4, fill = Nutrient)) +
+  geom_boxplot(position = position_dodge(0.8), width = 0.6)+
+  geom_point(aes(group = interaction(date, Nutrient)), 
+             position=position_jitterdodge(dodge.width =0.8), alpha =0.6)+
+  facet_wrap(~par)+
+  labs(y = 'NH4 Concentration (umol/L)')+
+  theme_pubr()
+
+#No3
+s1b <- ggplot(nutrient_level_after, aes(x = factor(date), 
+                                                  y = NO3, fill = Nutrient)) +
+  geom_boxplot(position = position_dodge(0.8), width = 0.6)+
+  geom_point(aes(group = interaction(date, Nutrient)), 
+             position=position_jitterdodge(dodge.width =0.8), alpha =0.6)+
+  facet_wrap(~par)+
+  labs(y = 'NO3 Concentration (umol/L)')+
+  theme_pubr()
+
+#plot_assembly
+figS1 <- s1a + s1b + plot_layout(guides= 'collect') &
+  theme(legend.position = "top")

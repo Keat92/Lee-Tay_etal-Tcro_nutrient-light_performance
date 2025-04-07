@@ -14,9 +14,9 @@ library(ggsurvfit)#plotting survival curve
 
 # Load dataset
 # For Kaplan-Meier analysis, dataset has to reformat. *Surv* function of `survival` packages create survival object the two important variable, *time* and *event*, *event* read only status indicator, 0=alive, 1=dead, or T/F (TRUE=death) or 1/2(2=death)
-data1 <- read_excel("C:/Users/yukin/Desktop/MyWork2025/M6. Tcro_CEA/2. DataAnalysis/Tcro_CEA/analysis_data1.xlsx", sheet = "survival")#for survival trajectories
-data2 <- read_excel("C:/Users/yukin/Desktop/MyWork2025/M6. Tcro_CEA/2. DataAnalysis/Tcro_CEA/analysis_data1.xlsx", sheet = "end_mortality")#for logistic  regression
-data3 <- read_excel("C:/Users/yukin/Desktop/MyWork2025/M6. Tcro_CEA/2. DataAnalysis/Tcro_CEA/analysis_data1.xlsx", sheet = "mortality")#for survival summarize
+data1 <- read_excel("your/working/directory/analysis_data1.xlsx", sheet = "survival")#for survival trajectories
+data2 <- read_excel("your/working/directory/analysis_data1.xlsx", sheet = "end_mortality")#for logistic  regression
+data3 <- read_excel("your/working/directory/analysis_data1.xlsx", sheet = "mortality")#for survival summarize
 
 # Summarize survivorship
 data3 <- data3 %>%
