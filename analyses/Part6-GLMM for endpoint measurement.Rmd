@@ -1,0 +1,312 @@
+---
+title: "Part6-GLMM for endpoint measurement"
+author: "LeeLK"
+date: "2025-04-08"
+output: html_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Normality and homogeneity test
+```{r }
+load(file="output/growth_metric_all.RData")
+
+#to check if data distribution is normal
+options(digits=2)
+metric_all %>% normality () %>% arrange(desc(p_value)) 
+metric_all %>% normality () %>% filter(p_value >= 0.05) 
+
+metric_all %>% plot_normality () #to visualize data distribution
+
+find_skewness(metric_all, value=TRUE)#check for skewness value
+find_skewness(metric_all, index=FALSE)#check for which variables have heavy skewness
+
+#for leveneTest, use lapply across measurements
+#combine light and nutrient level into single factor for grouping
+metric_all <- metric_all %>%
+  unite("trtmnt", light:nutrient, remove=FALSE)
+
+#name trtmnt as factor
+metric_all$trtmnt <- as.factor(metric_all$trtmnt)
+
+#define function to perform Levene's test
+levene_test_function <- function(variable) {
+  leveneTest(variable ~ trtmnt, data = metric_all)
+}
+
+# List of variables to test
+variables_to_test <- c("shell_length", "shell_width", "shell_height", 
+                       "total_wet_weight_g", "tissue_wet_weight_g",
+                       "shell_dry_weight_g", "strength_N", "cell_tissue_g", "chl_a_g")
+
+# Apply the levene_test_function to each variable
+results <- lapply(variables_to_test, function(var) {
+  levene_test_function(metric_all[[var]])
+})
+
+# Name the list elements for easier interpretation
+names(results) <- variables_to_test
+```
+
+### Data transformation
+Data transformation of log10 or sqrt to check if data become normal
+```{r}
+#log10 transformation
+metric_all_trans <- metric_all %>%
+  mutate(across(shell_length:chl_a, ~ log1p(.)))
+
+#check normality of log10 transformed data
+metric_all_trans %>% normality () %>% filter(p_value >=0.05)
+#adj_height, adj_strength, cell_count
+
+#sqrt transformation
+metric_all_trans2 <- metric_all %>%
+  mutate(across(shell_length:chl_a, ~ sqrt(.)))
+
+#check normality of log10 transformed data
+metric_all_trans2 %>% normality () %>% filter(p_value >=0.05)
+
+#log10 transformation
+metric_all <- metric_all %>%
+  mutate(log_cell_count = log10(cell_count))
+
+#describe the cell count and chl-a
+metric_all %>%
+  group_by(light, nutrient)%>%
+  describe() %>%
+  filter(described_variables == "cell_count")
+```
+## GLMM for end-point measurement
+Most variables does not conform to normality even after transformation (except for log10 transformed of cell count), proceed with GLMM which have more flexibility than conventional two-way ANOVA (or its non-parametric version)
+```{r}
+#load metric_all file
+load(file="output/growth_metric_all.RData")
+
+#package
+library(tidyverse)
+library(rstatix)
+library(lme4)
+library(sjPlot)
+library(gtsummary)
+library(emmeans)
+library(multcomp)
+library(car)
+
+#format variables to factor level
+metric_all <- metric_all %>%
+  mutate_at(vars(light, nutrient, tank), as.factor)
+
+#run GLMM, with tank as random effect
+glmm_1 <- glmer(shell_length ~ light*nutrient + (1|tank), family = Gamma(link ="log"), data =metric_all)
+
+#use sjPLot to check summary/extract the result on random effect
+tab_model(glmm_1)
+
+#Anova with wald chi-sq test
+#Type II p-values are calculated using the sums of squares for each main effect conditional on the other main effects. 
+#Type III p-values conditions the sums of squares on the interaction term as well.
+
+Anova(glmm_1, type=3)
+
+#emmeans for light
+emms_1 <- emmeans(glmm_1, pairwise ~ light*nutrient, adjust = "bonferroni")
+
+#alphabet for pairwise
+emms1_label <- cld(emms_1, alpha=0.05, Letters=letters, adjust="bonferroni")  
+
+#write csv
+write.csv(emms1_label, file ="output/emms1_label.csv")
+
+#run GLMM with adjusted width
+glmm_2 <- glmer(adj_width ~ light*nutrient + (1|tank), family = Gamma(link ="log"), data =metric_all)
+
+#use sjPLot to check summary/extract the result on random effect
+tab_model(glmm_2)
+
+#Anova with wald chi-sq test
+Anova(glmm_2,  type=3)
+
+#emmeans
+emms_2 <- emmeans(glmm_2, pairwise ~ light*nutrient, adjust = "bonferroni")
+
+#run GLMM with adj_height
+glmm_3 <- glmer(adj_height ~ light*nutrient + (1|tank), family = Gamma(link ="log"), data =metric_all)
+
+#use sjPLot to check summary/extract the result on random effect
+tab_model(glmm_3)
+
+#Anova with wald chi-sq test
+Anova(glmm_3, type =3)
+
+#emmeans
+emms_3<- emmeans(glmm_3, pairwise ~ light*nutrient, adjust = "bonferroni")
+
+#run GLMM with adj_weight
+glmm_4 <- glmer(adj_weight ~ light*nutrient + (1|tank), family = Gamma(link ="log"), data =metric_all)
+
+#use sjPLot to check summary/extract the result on random effect
+tab_model(glmm_4)
+
+#Anova with wald chi-sq test
+Anova(glmm_4, type= 3)
+
+#emmeans
+emms_4<- emmeans(glmm_4, pairwise ~ light*nutrient, adjust = "bonferroni")
+
+#alphabet for pairwise
+emms4_label <- cld(emms_4, alpha=0.05, Letters=letters, adjust="bonferroni")  
+
+#write csv
+write.csv(emms4_label, file ="output/emms4_label.csv")
+
+#run GLMM with total biomass
+glmm_5 <- glmer(total_wet_weight_g ~ light*nutrient + (1|tank), family = Gamma(link ="log"), data =metric_all)
+
+#use sjPLot to check summary/extract the result on random effect
+tab_model(glmm_5)
+
+#Anova with wald chi-sq test
+Anova(glmm_5, type= 3)
+
+#emmeans
+emms_5<- emmeans(glmm_5, pairwise ~ light*nutrient, adjust = "bonferroni")
+
+#alphabet for pairwise
+emms5_label <- cld(emms_5, alpha=0.05, Letters=letters, adjust="bonferroni")  
+
+#write csv
+write.csv(emms5_label, file ="output/emms5_label.csv")
+
+#run GLMM with tissue biomass
+glmm_6 <- glmer(tissue_wet_weight_g ~ light*nutrient + (1|tank), family = Gamma(link ="log"), data =metric_all)
+
+#use sjPLot to check summary/extract the result on random effect
+tab_model(glmm_6)
+
+#Anova with wald chi-sq test
+Anova(glmm_6, type =3)
+
+#emmeans
+emms_6<- emmeans(glmm_6, pairwise ~ light*nutrient, adjust = "bonferroni")
+
+#alphabet for pairwise
+emms6_label <- cld(emms_6, alpha=0.05, Letters=letters, adjust="bonferroni")  
+
+#write csv
+write.csv(emms6_label, file ="output/emms6_label.csv")
+
+#run GLMM with shell strength
+glmm_7 <- glmer(adj_strength ~ light*nutrient + (1|tank), family = Gamma(link ="log"), data =metric_all)
+
+#use sjPLot to check summary/extract the result on random effect
+tab_model(glmm_7)
+
+#Anova with wald chi-sq test
+Anova(glmm_7, type =3)
+
+#emmeans
+emms_7<- emmeans(glmm_7, pairwise ~ light*nutrient, adjust = "bonferroni")
+
+#alphabet for pairwise
+emms7_label <- cld(emms_7, alpha=0.05, Letters=letters, adjust="bonferroni")  
+
+#write csv
+write.csv(emms7_label, file ="output/emms7_label.csv")
+
+#log10 transformation for cell_count
+metric_all <- metric_all %>%
+  mutate(log_cell_count = log10(cell_count))
+
+#use lmer
+lmm_8 <- lmer(log_cell_count ~ light*nutrient + (1|tank), data =metric_all)
+
+#use sjPLot to check summary/extract the result on random effect
+tab_model(lmm_8)
+
+#Anova with wald chi-sq test
+Anova(lmm_8, type =3)
+
+#emmeans
+emms_8<- emmeans(lmm_8, pairwise ~ light*nutrient, adjust = "bonferroni")
+
+#run GLMM with chl_a
+glmm_9 <- glmer(chl_a ~ light*nutrient + (1|clam), family = Gamma(link ="log"), data =metric_all)
+
+#use sjPLot to check summary/extract the result on random effect
+tab_model(glmm_9)
+
+#Anova with wald chi-sq test
+Anova(glmm_9, type=3)
+
+#emmeans
+emms_9<- emmeans(glmm_9, pairwise ~ light*nutrient, adjust = "bonferroni")
+
+#alphabet for pairwise
+emms9_label <- cld(emms_9, alpha=0.05, Letters=letters, adjust="bonferroni")  
+
+#write csv
+write.csv(emms9_label, file ="output/emms9_label.csv")
+
+#run GLMM, with tank as random effect
+glmm_ex <- glmer(cond_index ~ light*nutrient + (1|tank), family = Gamma(link ="log"), data =shell_morpho3)
+
+Anova(glmm_ex, type =3)
+
+#emmeans
+emms_10<- emmeans(glmm_ex, pairwise ~ light*nutrient, adjust = "bonferroni")
+```
+
+## P value triangular matrix
+Use triangular matrix to show the p-value summary across variables
+```{r}
+#extract the p-value from ANOVA result and create tringular matrix
+library(reshape2)
+library(RColorBrewer)
+
+#
+pvalue_matrix <- data.frame(
+  variables = c('shell_length', 'shell_adj_width', 'shell_adj_height', 'shell_adj_weight', 
+                'shell_adj_strength', 'total_biomass', 'tissue_biomass', 'log_cell_count', 'chl_a'),
+  light = c(0.002, 0.72, 0.87, 0.002, 0.1, 0.0001, 0.0001, 0.84, 0.43),
+  nutrient = c(0.02, 0.83, 0.3, 0.17, 0.03, 0.04, 0.002, 0.41, 0.03),
+  light_nutrient = c(0.12, 0.98, 0.84, 0.1, 0.29, 0.064, 0.08, 0.62, 0.13)
+)
+
+# Convert to matrix format
+pvalue_matrix_melt <- melt(pvalue_matrix, id.vars = 'variables')
+
+# Create a custom color scale based on p-value thresholds
+pvalue_matrix_melt$significance <- cut(pvalue_matrix_melt$value,
+                              breaks = c(-Inf, 0.001, 0.01, 0.05, Inf),
+                              labels = c("< 0.001", "< 0.01", "< 0.05", "> 0.05"))
+
+#generate plot for pvalue matrix
+plot10<-ggplot(pvalue_matrix_melt, aes(x = variable, y = variables, fill = significance)) +
+  geom_tile(color = "white",alpha=0.5) +
+  scale_fill_manual(values = c("< 0.001" = "red", 
+                               "< 0.01" = "orange", 
+                               "< 0.05" = "yellow", 
+                               "> 0.05" = "gray"), 
+                    name = "p-value") +
+  geom_text(aes(label = sprintf("%.3f", value)), color = "black", size = 2) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(size = 6),
+        axis.text.y = element_text(size = 6),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank()) +
+  coord_fixed() +
+  theme(legend.position = "top")
+```
+
+## Assemble plot
+
+```{r}
+#Fig 4
+fig6 <- plot1+plot2+plot3+plot4+plot5+plot6+plot7+plot8+plot9+
+  plot_annotation(tag_levels = "a")+
+  plot_layout(ncol=3, guides = "collect") & 
+  theme(legend.position = "top")
+
+fig6.1 <- wrap_plots(fig6, plot10) +  plot_annotation(tag_levels = "a")
+```

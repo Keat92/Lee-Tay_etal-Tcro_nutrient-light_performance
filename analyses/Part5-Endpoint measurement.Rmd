@@ -1,0 +1,311 @@
+---
+title: "Part5-EndPoint_measurement"
+author: "LeeLK"
+date: "2025-04-08"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+#Library
+library(tidyverse)
+library(readxl)
+library(dlookr)#for summary statistics
+library(car)#LeveneTest
+library(ggsci)
+library(ggpubr)
+library(broom)
+library(patchwork)
+library(rstatix)
+library(lme4)
+library(sjPlot)
+library(gtsummary)
+library(emmeans)
+```
+## Initial morphometric
+```{r}
+#start point measurement
+start_morpho <- read_excel("C:/Users/yukin/Desktop/MyWork2025/M6. Tcro_CEA/2. DataAnalysis/Tcro_CEA/analysis_data2.xlsx", sheet = "start_morpho")
+
+#calculate descriptive stats
+start_morpho %>% describe ()
+
+#descriptive stats by tank
+start_morpho %>% group_by (tank) %>%
+  describe ()
+```
+
+## Summary for Shell morphometric
+```{r}
+shell_morpho <- read_excel("C:/Users/yukin/Desktop/MyWork2025/M6. Tcro_CEA/2. DataAnalysis/Tcro_CEA/analysis_data2.xlsx", sheet = "morphometric")
+
+shell_strength <- read_excel("C:/Users/yukin/Desktop/My Work/My Research/Manuscripts/M6. Tcro_CEA/2. DataAnalysis/Tcro_CEA/analysis_data2.xlsx", sheet = "shell_strength")
+
+#join shell_morpho and shell_strength by tank and clam ID
+shell_morpho2<- left_join(shell_morpho, shell_strength, by=c("tank","clam"))
+
+save(shell_morpho2, file ="output/shell_morpho2.RData")
+```
+
+## Growth (gain)
+Only average shell length and total wet weight of start and end were used
+```{r}
+#select only column 1:4, 6 and 9, from morpho dataset, 6 is end shell length and 9 is end wet weight
+#rename the column
+initial_end_morpho <- shell_morpho %>%
+  select(1:5,9) %>%
+  rename(end_length = sh_length, end_weight = total_weight) %>%
+  unite("trtmnt", light:nutrient, remove=FALSE)
+
+#cbind 
+initial_end_morpho <- cbind(initial_end_morpho, start_morpho)
+
+#remove unwanted column
+initial_end_morpho <- initial_end_morpho %>% select(!8)
+
+initial_end_morpho %>% group_by (trtmnt) %>% 
+  describe()
+
+#calculate percentage gain for shell length and weight
+percent_gain <- initial_end_morpho %>% 
+  group_by(trtmnt) %>%
+  summarise(across(end_length:start_weight, list(mean = mean), na.rm= TRUE))%>%
+  mutate(length_gain = ((end_length_mean - start_length_mean)/start_length_mean)*100) %>%
+  mutate(mass_gain = ((end_weight_mean - start_weight_mean)/start_weight_mean)*100)
+```
+
+## Adjusted morphometric summary
+Add adjusted shell morphometric (adjusted to shell length)
+```{r}
+#load shell_morpho2 file
+load(file="output/shell_morpho2.RData")
+
+#shell variable need to be adjusted with shell length, add adjusted variable using across and a function
+#calculate CI, condition index with 
+#CI= (Shell Dry Weight/Tissue Wet Weight)*100
+shell_morpho3 <- shell_morpho2 %>%
+  mutate(across(shell_width:strength_N, ~ .x / shell_length, .names = "adj_{col}")) %>%
+  rename(adj_width = adj_shell_width, adj_height = adj_shell_height,
+         adj_weight = adj_shell_dry_weight_g, adj_strength=adj_strength_N) %>%
+  mutate(cond_index = (tissue_wet_weight_g/shell_dry_weight_g)*100)
+
+#
+save(shell_morpho3, file="output/shell_morpho3.RData")
+```
+## Plotting
+```{r}
+#load shell morpho3, which have the adjusted variables
+load(file="output/shell_morpho3.RData")
+
+#shell length
+plot1 <- ggplot(shell_morpho3, aes(x = nutrient, y = shell_length, fill = nutrient)) +
+  geom_boxplot()+
+  facet_wrap(~ light) +  
+  scale_fill_npg(alpha=0.5) +
+  labs(y = "ShLength (mm)") +
+  theme_pubr() +
+  theme(legend.position = "top",
+        axis.text.x = element_blank(),
+    axis.title.x = element_blank())
+
+#adj shell width
+plot2 <- ggplot(shell_morpho3, aes(x = nutrient, y = adj_width , fill = nutrient)) +
+  geom_boxplot() +
+  facet_wrap(~ light) +  
+  scale_fill_npg(alpha = 0.5) +
+  labs(y = "ShWidth/Length") +
+  theme_pubr() +
+  theme(legend.position = "top",
+        axis.text.x = element_blank(),
+    axis.title.x = element_blank())
+
+#adj shell height
+plot3 <- ggplot(shell_morpho3, aes(x = nutrient, y = adj_height, fill = nutrient)) +
+  geom_boxplot() +
+  facet_wrap(~ light) +  
+  scale_fill_npg(alpha = 0.5) +
+  labs(y = "ShHeight/Length") +
+  theme_pubr() +
+  theme(legend.position = "top",
+        axis.text.x = element_blank(),
+    axis.title.x = element_blank())
+
+#shell dry weight
+plot4 <- ggplot(shell_morpho3, aes(x = nutrient, y = adj_weight, fill = nutrient)) +
+  geom_boxplot() +
+  facet_wrap(~ light) +  
+  scale_fill_npg(alpha = 0.5) +
+  labs(y = "ShWeight/Length") +
+  theme_pubr() +
+  theme(legend.position = "top",
+        axis.text.x = element_blank(),
+    axis.title.x = element_blank())
+
+#adj strength
+plot5 <- ggplot(shell_morpho3, aes(x = nutrient, y = adj_strength, fill = nutrient)) +
+  geom_boxplot() +
+  facet_wrap(~ light) +  
+  scale_fill_npg(alpha = 0.5) +
+  labs(y = "ShStrength/Length") +
+  theme_pubr() +
+  theme(legend.position = "top",
+        axis.text.x = element_blank(),
+    axis.title.x = element_blank())
+
+#shell length
+plot_ex <- ggplot(shell_morpho3, aes(x = nutrient, y = cond_index, fill = nutrient)) +
+  geom_boxplot()+
+  facet_wrap(~ light) +  
+  scale_fill_npg(alpha=0.5) +
+  labs(y = "Condition Index (mm)") +
+  theme_pubr() +
+  theme(legend.position = "top",
+        axis.text.x = element_blank(),
+    axis.title.x = element_blank())
+```
+## Cell density and chl-a
+```{r}
+load(file="output/shell_morpho3.RData")
+
+#load chl_a and cell density data
+chl_a <- read_excel("C:/Users/yukin/Desktop/My Work/My Research/Manuscripts/M6. Tcro_CEA/2. DataAnalysis/Tcro_CEA/analysis_data2.xlsx", sheet = "chl-a")
+
+cell_density <- read_excel("C:/Users/yukin/Desktop/My Work/My Research/Manuscripts/M6. Tcro_CEA/2. DataAnalysis/Tcro_CEA/analysis_data2.xlsx", sheet = "cell_density")
+
+#join chl_a and cell density to shell_morpho3
+metric_all<- shell_morpho3 %>%
+  left_join(cell_density, by=c("tank","clam")) %>%
+    left_join(chl_a, by=c("tank","clam"))
+
+#save this datafile for next section for normality, ordination 
+save(metric_all, file="output/growth_metric_all.RData")
+
+#Morphometric summary
+options(digits=3)
+
+metric_all %>%
+  select(tank, light, nutrient) %>%
+  group_by (light, nutrient) %>% 
+  describe () %>%
+    select(described_variables, n,light, nutrient, mean, sd)
+
+load(file="output/growth_metric_all.RData")
+
+#total biomass
+plot6<- ggplot(metric_all, aes(x = nutrient, y = total_wet_weight_g, fill = nutrient)) +
+  geom_boxplot() +
+  facet_wrap(~ light) +  
+  scale_fill_npg(alpha = 0.5) +
+  labs(y = "TotalBiomass (g)") +
+  theme_pubr() +
+  theme(legend.position = "top",
+        axis.text.x = element_blank(),
+    axis.title.x = element_blank())
+
+#total biomass
+plot7<- ggplot(metric_all, aes(x = nutrient, y = tissue_wet_weight_g, fill = nutrient)) +
+  geom_boxplot() +
+  facet_wrap(~ light) +  
+  scale_fill_npg(alpha = 0.5) +
+  labs(y = "TissueBiomass (g)") +
+  theme_pubr() +
+  theme(legend.position = "top",
+        axis.text.x = element_blank(),
+    axis.title.x = element_blank())
+
+#cell density
+plot8<- ggplot(metric_all, aes(x = nutrient, y = cell_count, fill = nutrient)) +
+  geom_boxplot()+
+  facet_wrap(~ light) +  
+  scale_fill_npg(alpha = 0.5) +
+  labs(y = "Symbiont cell density (10^7 cell g-1)") +
+  theme_pubr() +
+  theme(legend.position = "top",
+        axis.text.x = element_blank(),
+    axis.title.x = element_blank())
+
+#chl-a
+plot9<- ggplot(metric_all, aes(x = nutrient, y = chl_a, fill = nutrient)) +
+  geom_boxplot() +
+  facet_wrap(~ light) +  
+  scale_fill_npg(alpha = 0.5) +
+  labs(y = "Chl-a (ug g-1)") +
+  theme_pubr() + 
+  theme(legend.position = "top",
+        axis.text.x = element_blank(),
+    axis.title.x = element_blank())
+
+fig6 <- (plot1+plot2+plot3+plot4+plot5+plot6+plot7+plot8+plot9) +
+  plot_layout(ncol=4, guides = "collect") & 
+  theme(legend.position = "top")
+```
+## Normality and homogeneity test
+```{r}
+#
+load(file="output/growth_metric_all.RData")
+
+#to check if data distribution is normal
+options(digits=2)
+metric_all %>% normality () %>% arrange(desc(p_value)) 
+metric_all %>% normality () %>% filter(p_value >= 0.05) 
+
+metric_all %>% plot_normality () #to visualize data distribution
+
+find_skewness(metric_all, value=TRUE)#check for skewness value
+find_skewness(metric_all, index=FALSE)#check for which variables have heavy skewness
+
+#for leveneTest, use lapply across measurements
+#combine light and nutrient level into single factor for grouping
+metric_all <- metric_all %>%
+  unite("trtmnt", light:nutrient, remove=FALSE)
+
+#name trtmnt as factor
+metric_all$trtmnt <- as.factor(metric_all$trtmnt)
+
+#define function to perform Levene's test
+levene_test_function <- function(variable) {
+  leveneTest(variable ~ trtmnt, data = metric_all)
+}
+
+# List of variables to test
+variables_to_test <- c("shell_length", "shell_width", "shell_height", 
+                       "total_wet_weight_g", "tissue_wet_weight_g",
+                       "shell_dry_weight_g", "strength_N", "cell_tissue_g", "chl_a_g")
+
+# Apply the levene_test_function to each variable
+results <- lapply(variables_to_test, function(var) {
+  levene_test_function(metric_all[[var]])
+})
+
+# Name the list elements for easier interpretation
+names(results) <- variables_to_test
+```
+
+### Data transformation
+Data transformation of log10 or sqrt to check if data become normal
+```{r}
+#log10 transformation
+metric_all_trans <- metric_all %>%
+  mutate(across(shell_length:chl_a, ~ log1p(.)))
+
+#check normality of log10 transformed data
+metric_all_trans %>% normality () %>% filter(p_value >=0.05)
+#adj_height, adj_strength, cell_count
+
+#sqrt transformation
+metric_all_trans2 <- metric_all %>%
+  mutate(across(shell_length:chl_a, ~ sqrt(.)))
+
+#check normality of log10 transformed data
+metric_all_trans2 %>% normality () %>% filter(p_value >=0.05)
+
+#log10 transformation
+metric_all <- metric_all %>%
+  mutate(log_cell_count = log10(cell_count))
+
+#describe the cell count and chl-a
+metric_all %>%
+  group_by(light, nutrient)%>%
+  describe() %>%
+  filter(described_variables == "cell_count")
+```

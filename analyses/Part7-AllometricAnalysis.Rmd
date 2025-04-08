@@ -1,0 +1,100 @@
+---
+title: "Part7-AllometricAnalysis"
+author: "LeeLK"
+date: "2025-04-08"
+output: html_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Allometric relationships
+The length–weight relationship (LWR) of each species was expressed by an exponential equation W = aLb, where W is the body weight (g) and L is the total length (mm). This equation can be linearized as log W = log a + b log L, where a is the intercept and b is the slope (regression coefficient), which is used to indicate the growth patterns, i.e., isometric (b = 3) or positive allometric (b \> 3) or negative allometric (b \< 3).
+```{r}
+load(file="output/shell_morpho2.RData")
+load(file="output/growth_metric_all.RData")
+
+#package
+library(tidyverse)
+library(ggpubr)
+library(ggsci)
+library(patchwork)
+
+#transformed all data to log
+shell_morpho2_trans <- shell_morpho2 %>%
+  mutate(across(shell_length:strength_N, ~ log1p(.)))
+
+#transformed all data to log
+metric_all_trans <- metric_all %>%
+  mutate(across(shell_length:chl_a, ~ log10(.)))
+
+#total wet weight vs shell length
+allometric_list  <- list(
+  glm1<- glm(total_wet_weight_g ~ shell_length, data = shell_morpho2_trans, subset = (light == "PAR250" & nutrient == "Ambient")),
+  glm2<- glm(total_wet_weight_g ~ shell_length, data = shell_morpho2_trans, subset = (light == "PAR250" & nutrient == "Enriched")),  
+  glm3<- glm(total_wet_weight_g ~ shell_length, data = shell_morpho2_trans, subset = (light == "PAR350" & nutrient == "Ambient")),
+  glm4<- glm(total_wet_weight_g ~ shell_length, data = shell_morpho2_trans, subset = (light == "PAR350" & nutrient == "Enriched")),
+    glm5<- glm(total_wet_weight_g ~ shell_length, data = shell_morpho2_trans, subset = (light == "PAR450" & nutrient == "Ambient")),
+  glm6<- glm(total_wet_weight_g ~ shell_length, data = shell_morpho2_trans, subset = (light == "PAR450" & nutrient == "Enriched")))
+  
+confint_list <- lapply(allometric_list, confint) 
+
+#tissue wet weight vs shell length
+allometric_list2  <- list(
+  glm1<- glm(tissue_wet_weight_g ~ shell_length, data = shell_morpho2_trans, subset = (light == "PAR250" & nutrient == "Ambient")),
+  glm2<- glm(tissue_wet_weight_g ~ shell_length, data = shell_morpho2_trans, subset = (light == "PAR250" & nutrient == "Enriched")),  
+  glm3<- glm(tissue_wet_weight_g ~ shell_length, data = shell_morpho2_trans, subset = (light == "PAR350" & nutrient == "Ambient")),
+  glm4<- glm(tissue_wet_weight_g ~ shell_length, data = shell_morpho2_trans, subset = (light == "PAR350" & nutrient == "Enriched")),
+    glm5<- glm(tissue_wet_weight_g ~ shell_length, data = shell_morpho2_trans, subset = (light == "PAR450" & nutrient == "Ambient")),
+  glm6<- glm(tissue_wet_weight_g ~ shell_length, data = shell_morpho2_trans, subset = (light == "PAR450" & nutrient == "Enriched")))
+  
+confint_list2 <- lapply(allometric_list2, confint)
+
+#dry shell weight vs shell length
+allometric_list3  <- list(
+  glm1<- glm(shell_dry_weight_g ~ shell_length, data = shell_morpho2_trans, subset = (light == "PAR250" & nutrient == "Ambient")),
+  glm2<- glm(shell_dry_weight_g ~ shell_length, data = shell_morpho2_trans, subset = (light == "PAR250" & nutrient == "Enriched")),  
+  glm3<- glm(shell_dry_weight_g ~ shell_length, data = shell_morpho2_trans, subset = (light == "PAR350" & nutrient == "Ambient")),
+  glm4<- glm(shell_dry_weight_g ~ shell_length, data = shell_morpho2_trans, subset = (light == "PAR350" & nutrient == "Enriched")),
+    glm5<- glm(shell_dry_weight_g ~ shell_length, data = shell_morpho2_trans, subset = (light == "PAR450" & nutrient == "Ambient")),
+  glm6<- glm(shell_dry_weight_g ~ shell_length, data = shell_morpho2_trans, subset = (light == "PAR450" & nutrient == "Enriched")))
+  
+confint_list3 <- lapply(allometric_list3, confint)
+
+#total wet weight vs shell length
+plot1 <- ggplot(shell_morpho2_trans, aes(x = shell_length, y = total_wet_weight_g, color = nutrient)) +
+  scale_color_npg() +
+  facet_wrap(~light)+
+  geom_point(alpha=0.2) +
+  geom_smooth(method = "glm",
+              method.args = list(family = "Gamma")) +
+  stat_regline_equation (aes(label =  paste(..eq.label.., ..adj.rr.label.., sep = "~~~~")), label.y = c(2.8,2.6))+
+  theme_pubr()
+
+#tissue wet weight vs shell length
+plot2 <- ggplot(shell_morpho2_trans, aes(x = shell_length, y = tissue_wet_weight_g, color = nutrient)) +
+  scale_color_npg() +
+  facet_wrap(~light)+
+  geom_point(alpha=0.2) +
+  geom_smooth(method = "glm",
+              method.args = list(family = "Gamma")) +
+  stat_regline_equation (aes(label =  paste(..eq.label.., ..adj.rr.label.., sep = "~~~~")), label.y = c(1.6,1.5))+
+  theme_pubr()
+
+#dry shell weight vs shell length
+plot3 <- ggplot(shell_morpho2_trans, aes(x = shell_length, y = shell_dry_weight_g, color = nutrient)) +
+  scale_color_npg() +
+  facet_wrap(~light)+
+  geom_point(alpha=0.2) +
+  geom_smooth(method = "glm",
+              method.args = list(family = "Gamma")) +
+  stat_regline_equation (aes(label =  paste(..eq.label.., ..adj.rr.label.., sep = "~~~~")), label.y = c(2.5,2.3))+
+  theme_pubr()
+```
+
+# Plot Assembly
+```{r}
+#FigS3
+fig9 <- plot1+plot2+plot3 + plot_annotation(tag_levels = "a") +  plot_layout(nrow=3,guides = "collect", axes = "collect") & 
+  theme(legend.position = "none")
+```
