@@ -1,0 +1,194 @@
+---
+title: "Part3-GrowthPerformance"
+author: "LeeLK"
+date: "2025-04-07"
+output: html_document
+---
+Growth trend, specific growth rate and photosynthetic efficiency
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+#package
+library(tidyverse)
+library(ggtext)
+library(ggpubr)
+library(ggsci)
+library(dlookr)
+library(rstatix)
+library(lme4)
+library(readxl)
+library(emmeans)
+library(patchwork)
+library(gtsummary)
+library(car)
+library(sjPlot)
+```
+
+## Growth trend
+Use shell length (SL)
+```{r}
+#load data
+growth_SL <- read_excel("C:/Users/yukin/Desktop/MyWork2025/M6. Tcro_CEA/2. DataAnalysis/Tcro_CEA/analysis_data2.xlsx", sheet = "growth_SL")
+
+# Make sure all the variable is read as factor 
+growth_SL <- growth_SL %>%
+  mutate_at(vars(tank, light, nutrient), as.factor)
+
+#pivot long, and change D1...D176 to days
+growth_SL_long <- growth_SL %>%
+  pivot_longer(cols = starts_with("D"), 
+               names_to = "time_days", values_to = "SL") %>%
+  mutate(time_days = str_extract(time_days, "\\d+") %>% as.numeric())
+
+# Save data
+save(growth_SL_long, file="temp_output/growth_SL_long.RData")
+
+load(file="output/growth_SL_long.RData")
+
+#Fig2a: facet wrap by light, compare between nutrient
+plot1 <-ggplot(growth_SL_long, aes(x=time_days, y=SL, 
+                                           color=nutrient))+
+  geom_jitter(alpha=0.2)+
+  geom_smooth(method = glm, method.args = list(family = "Gamma"))+
+  facet_wrap(~light)+
+  scale_color_npg() +
+  labs(y= "ShLength (mm)", x = "Time (days)")+
+  theme_pubr()+
+  theme(legend.position = c(0.9,0.2))+
+  stat_regline_equation(aes(label =  paste(..adj.rr.label.., sep = "~~~~")))
+
+# SL growth trend vs time
+allometric_list  <- list(
+  glm1<- glm(SL ~ time_days, data = growth_SL_long, subset = (light == "PAR250" & nutrient == "Ambient")),
+  glm2<- glm(SL ~ time_days, data = growth_SL_long, subset = (light == "PAR250" & nutrient == "Enriched")),  
+  glm3<- glm(SL ~ time_days, data = growth_SL_long, subset = (light == "PAR350" & nutrient == "Ambient")),
+  glm4<- glm(SL ~ time_days, data = growth_SL_long, subset = (light == "PAR350" & nutrient == "Enriched")),
+    glm5<- glm(SL ~ time_days, data = growth_SL_long, subset = (light == "PAR450" & nutrient == "Ambient")),
+  glm6<- glm(SL ~ time_days, data = growth_SL_long, subset = (light == "PAR450" & nutrient == "Enriched")))
+
+#calculate confidence interval  
+confint_list <- lapply(allometric_list, confint) 
+```
+
+## Photosynthetic efficiency
+```{r}
+# Load data
+pam <- read_excel("C:/Users/yukin/Desktop/MyWork2025/M6. Tcro_CEA/2. DataAnalysis/Tcro_CEA/analysis_data2.xlsx", sheet = "PAM")
+
+# Add new column to indicate number of days since day 0
+day_0 <- as.Date('2023-08-10') 
+pam$date <- as.Date(pam$date)
+pam <- pam %>% 
+  mutate(time_days = as.numeric(date - day_0))
+  
+# Format the intended variables into factor level 
+pam <- pam %>%
+  mutate_at(vars(tank, light, nutrient), as.factor)
+
+# Descriptive stats
+options(digits = 3)
+pam %>%
+  group_by(light, nutrient) %>%
+  describe(Y2) %>%
+  select (described_variables, light, nutrient, mean, sd, p00, p100)
+
+pam %>%
+  group_by(date) %>%
+  describe(Y2) %>%
+  select (described_variables, date, mean, sd)
+
+# Save
+save(pam, file="temp_output/pam.RData")
+
+#Fig5a: Plot pam graph
+plot2 <-ggplot(pam, aes(x=time_days, y=Y2, 
+                                           color=nutrient))+
+  geom_jitter(alpha=0.2)+
+  geom_smooth(method = "loess")+
+  scale_color_npg() +
+  facet_wrap(~light)+
+  labs(y= "Fv/Fm", x = "Time (days)")+
+  theme_pubr()+
+  theme(legend.position = c(0.9,0.9)) +
+  stat_regline_equation(aes(label =  paste(..adj.rr.label.., sep = "~~~~")))
+```
+
+## Specific growth rate
+SGR(% day-1) = 100%\*(ln(SL2) - ln(SL1))/T Where SGR = Specific growth rate, SL1 is the initial shell length of clams; SL2 is the final shell length of clams; T is the duration of the experiment in days.
+```{r}
+# Load data
+growth_SL <- read_excel("C:/Users/yukin/Desktop/MyWork2025/M6. Tcro_CEA/2. DataAnalysis/Tcro_CEA/analysis_data2.xlsx", sheet = "growth_SL")
+
+# Summarise across D0 to D176 to calculate specific growth rate
+mean_growth_SL <- growth_SL %>% 
+  group_by(tank, light, nutrient) %>%
+  summarise(across(D1:D176,\(x) round(mean(x, na.rm= TRUE),3))) %>%
+  ungroup()
+
+# Save R data
+save(mean_growth_SL, file="temp_output/mean_growth_SL.RData")
+
+# Overall specific growth rate
+overall_growth_rate <- mean_growth_SL %>% 
+  mutate(sgr_overall =round(((log(D176)-log(D1))/176)*100, 3)) %>%
+  mutate(gr_day =round((((D176-D1))/176), 3)) %>%
+  mutate(gr_month = gr_day*30)%>%
+  select(tank, light, nutrient, sgr_overall, gr_day,gr_month) 
+# Calculate descriptive stats
+overall_growth_rate %>% 
+  group_by(light, nutrient) %>%
+  describe(gr_day)
+overall_growth_rate %>% 
+  group_by(light, nutrient) %>%
+  describe(gr_month)
+  overall_growth_rate %>% 
+  group_by(light, nutrient) %>%
+  describe(sgr_overall)
+
+# Calculate growth rate changes over time
+growth_rate_changes <- mean_growth_SL %>% 
+  mutate(t_14=((log(D14)-log(D1))/14)*100) %>%
+  mutate(t_28=((log(D28)-log(D1))/28)*100) %>%
+  mutate(t_42=((log(D42)-log(D1))/42)*100) %>%
+  mutate(t_56=((log(D56)-log(D1))/56)*100) %>%
+  mutate(t_70=((log(D70)-log(D1))/70)*100) %>%
+  mutate(t_98=((log(D98)-log(D1))/98)*100) %>%
+  mutate(t_126=((log(D126)-log(D1))/126)*100) %>%
+  mutate(t_154=((log(D154)-log(D1))/154)*100) %>%
+  mutate(t_176=((log(D176)-log(D1))/178)*100) %>%
+  select(tank:nutrient, t_14:t_176)
+
+
+# Pivot long and convert the t_14 and etc, to respective time in days
+growth_rate_changes_long <- growth_rate_changes %>%
+  pivot_longer(cols = starts_with("t_"), 
+               names_to = "time_days", values_to = "sgr_t") %>%
+  mutate(time_days = str_extract(time_days, "\\d+") %>% as.numeric())
+
+# save Rdata
+save(growth_rate_changes_long, file="temp_output/growth_rates.RData")
+
+#Fig3a: Plot specific growth rates
+plot3 <-ggplot(growth_rate_changes_long, aes(x=time_days, y=sgr_t, 
+                                           color=nutrient))+
+  geom_jitter(alpha=0.2)+
+  geom_smooth(method = glm, method.args = list(family = "Gamma"))+
+  facet_wrap(~light)+
+  scale_color_npg() +
+  labs(y= "SGR (% day-1)", x = "Time (days)")+
+  theme_pubr()+
+  theme(legend.position = c(0.7,0.7)) +
+  stat_regline_equation(aes(label =  paste(..adj.rr.label.., sep = "~~~~")))
+
+#sgrgrowth trend vs time
+allometric_list  <- list(
+  glm1<- glm(sgr_t ~ time_days, data = growth_rate_changes_long, subset = (light == "PAR250" & nutrient == "Ambient")),
+  glm2<- glm(sgr_t ~ time_days, data = growth_rate_changes_long, subset = (light == "PAR250" & nutrient == "Enriched")),  
+  glm3<- glm(sgr_t ~ time_days, data = growth_rate_changes_long, subset = (light == "PAR350" & nutrient == "Ambient")),
+  glm4<- glm(sgr_t ~ time_days, data = growth_rate_changes_long, subset = (light == "PAR350" & nutrient == "Enriched")),
+    glm5<- glm(sgr_t ~ time_days, data = growth_rate_changes_long, subset = (light == "PAR450" & nutrient == "Ambient")),
+  glm6<- glm(sgr_t ~ time_days, data = growth_rate_changes_long, subset = (light == "PAR450" & nutrient == "Enriched")))
+
+#calculate confidence interval   
+confint_list <- lapply(allometric_list, confint) 
+```

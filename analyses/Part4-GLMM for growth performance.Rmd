@@ -1,0 +1,495 @@
+---
+title: "Part4-GLMM for growth performance"
+author: "LeeLK"
+date: "2025-04-08"
+output: html_document
+---
+GLMM analysis for growth performance (SL growth, Fv/Fm, SGR)
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+## Normality test
+```{r}
+library(dlookr)
+
+#load data
+load(file="output/growth_SL_long.RData")
+load(file="output/pam.RData")
+load(file="output/growth_rates.RData")
+
+#check growth SL
+growth_SL_long %>% plot_normality(SL)
+
+#try transform with sqrt and log
+growth_trans <- growth_SL_long %>%
+  mutate(sqrt_SL= sqrt(SL)) %>%
+  mutate(log_SL = log(SL))
+
+#check normality
+growth_trans %>% normality(log_SL, sqrt_SL)
+#non-normal, proceed with GLMM
+
+#check pam
+pam %>% plot_normality(Y2)
+
+#try transform with sqrt and log
+pam_trans <- pam %>%
+  mutate(sqrt_y2= sqrt(Y2)) %>%
+  mutate(log_y2 = log(Y2))
+
+#check normality
+pam_trans %>% normality(log_y2, sqrt_y2)
+#non-normal, proceed with GLMM
+
+#check normality
+growth_trans %>% normality(log_SL, sqrt_SL)
+#non-normal, proceed with GLMM
+
+#check sgr_t
+growth_rate_changes_long %>% plot_normality(sgr_t)
+
+#try transform with sqrt and log
+sgr_trans <- growth_rate_changes_long %>%
+  mutate(sqrt_sgr= sqrt(sgr_t)) %>%
+  mutate(log_sgr = log(sgr_t))
+
+#check normality
+sgr_trans %>% normality(sqrt_sgr, log_sgr)
+#non-normal, proceed with GLMM
+```
+
+## GLMM for variable with time
+Light(PAR), nutrient and time (day) as fixed effect with interaction term. Tank as random effect to account for repeated measures across the 18 tanks
+
+```{r}
+#Package used
+library(tidyverse)
+library(lme4)
+library(emmeans)
+library(gtsummary)
+library(sjPlot)
+library(car)
+library(multcomp)
+library(ggpubr)
+library(ggsci)
+library(dlookr)#for quick normality
+
+#since SL is non-normal, Generalized linear mixed model will be used
+#treat time as polynomial with 2 degree consider, in this case, with both linear and quadratic effects, a more complex, curvilinear relationship between time and shell length growth
+#because it is expect that the effect of time on SL growth isnt strictly linear but may increase or decrease at varying rate over time (likely decrease)
+
+#load growth SL data
+load(file="output/growth_SL_long.RData")
+
+set.seed(1234)
+#backward-stepwise model simplification
+#Start with full model
+glmm_SL <- glmer(SL ~ light*nutrient*poly(time_days,2) + (1|tank), 
+                     family = Gamma(link ="log"),
+                    data =growth_SL_long,
+                    control = glmerControl(optimizer = "bobyqa", 
+                                           optCtrl = list(maxfun = 1e5)))
+#no 3-way interaction
+glmm_SL_no_3way <- glmer(SL ~ (light + nutrient + poly(time_days, 2))^2 
+                         + (1 | tank),
+                         family = Gamma(link = "log"),
+                         data = growth_SL_long,
+                         control = glmerControl(optimizer = "bobyqa", 
+                                                optCtrl = list(maxfun = 1e5)))
+#only light and nutrient
+glmm_SL_lightnutrient <- glmer(SL ~ light*nutrient + (1 | tank),
+                       family = Gamma(link = "log"),
+                       data = growth_SL_long,
+                       control = glmerControl(optimizer = "bobyqa", 
+                                              optCtrl = list(maxfun = 1e5)))
+
+#only light and time
+glmm_SL_lighttime <- glmer(SL ~ light*poly(time_days,2) + (1 | tank),
+                       family = Gamma(link = "log"),
+                       data = growth_SL_long,
+                       control = glmerControl(optimizer = "bobyqa", 
+                                              optCtrl = list(maxfun = 1e5)))
+#only nutrient and time
+glmm_SL_nutrienttime <- glmer(SL ~ nutrient*poly(time_days,2) + (1 | tank),
+                       family = Gamma(link = "log"),
+                       data = growth_SL_long,
+                       control = glmerControl(optimizer = "bobyqa", 
+                                              optCtrl = list(maxfun = 1e5)))
+
+#Run AIC for model comparison
+AIC_r1 <- AIC(glmm_SL, glmm_SL_no_3way,glmm_SL_lightnutrient, 
+              glmm_SL_lighttime, glmm_SL_nutrienttime)
+#glmm_SL, with 3-way interaction with lowest AIC, hence this model is selected
+
+#to compare AIC model with delta AIC
+models <- list(full= glmm_SL, no_3way = glmm_SL_no_3way,
+               light_nutrient = glmm_SL_lightnutrient, 
+              light_time = glmm_SL_lighttime, 
+              nutrient_time = glmm_SL_nutrienttime)
+aic_values <- sapply(models, AIC)
+delta_AIC <- aic_values - min(aic_values)
+SLmodel_AIC_comp <- data.frame(Model = names(models), AIC = aic_values, delta_AIC = delta_AIC)
+
+#write csv as output
+write.csv(AIC_r1, file="temp_output/AIC_sl.csv")
+
+#summarise selected model with gtsummary table format
+glmm_SL_summary <- tbl_regression(glmm_SL)
+
+#use sjPLot to extract the result on random effect
+tab_model(glmm_SL)
+
+#use x2 statistic to assess significance of fixed effects either
+#likelihood ratio tests (LRT) to compared reduced model and full model
+#Wald tests for each fixed effects
+
+#Type 3 ANOVA for unbalanced design
+Anova(glmm_SL, type=3)
+
+#post-hoc test regardless of anova results, as we are interest in specific time points
+
+#all time points, specifically, at 30, 60, 90, 120, 150
+emms_SL<- emmeans(glmm_SL, pairwise ~ light*nutrient*poly(time_days,2), at = list(time_days = c(30,60,90,120,150)), type ="response", adjust = "bonferroni")
+#alot of significant due to the fact that time is a significant effect on growth
+
+summary(emms_SL)
+
+#extract by time point, day 30
+emms_SL_d30<- emmeans(glmm_SL, pairwise ~ light*nutrient*poly(time_days,2), at = list(time_days = 30), type ="response", adjust = "bonferroni")
+
+emms_SL30 <- cld(emms_SL_d30, alpha=0.05, Letters=letters, adjust="bonferroni")
+
+emms_SL_d30df <- as.data.frame(summary(emms_SL_d30))
+
+write.csv(emms_SL_d30df, file="output/emms_SL_d30df.csv")
+
+#extract by time point, day 60
+emms_SL_d60<- emmeans(glmm_SL, pairwise ~ light*nutrient*poly(time_days,2), at = list(time_days = 60), type ="response", adjust = "bonferroni")
+
+emms_SL60 <- cld(emms_SL_d60, alpha=0.05, Letters=letters, adjust="bonferroni")
+
+emms_SL_d60df <- as.data.frame(summary(emms_SL_d60))
+
+write.csv(emms_SL_d60df, file="output/emms_SL_d60df.csv")
+
+#extract by time point, day 90
+emms_SL_d90<- emmeans(glmm_SL, pairwise ~ light*nutrient*poly(time_days,2), at = list(time_days = 90), type ="response", adjust = "bonferroni")
+
+emms_SL90 <- cld(emms_SL_d90, alpha=0.05, Letters=letters, adjust="bonferroni")
+
+emms_SL_d90df <- as.data.frame(summary(emms_SL_d90))
+
+write.csv(emms_SL_d90df, file="output/emms_SL_d90df.csv")
+
+#extract by time point, first day 120
+emms_SL_d120<- emmeans(glmm_SL, pairwise ~ light*nutrient*poly(time_days,2), at = list(time_days = 120), type ="response", adjust = "bonferroni")
+
+emms_SL120 <- cld(emms_SL_d120, alpha=0.05, Letters=letters, adjust="bonferroni")
+
+emms_SL_d120df <- as.data.frame(summary(emms_SL_d120))
+
+write.csv(emms_SL_d120df, file="output/emms_SL_d120df.csv")
+
+#extract by time point, day 150
+emms_SL_d150<- emmeans(glmm_SL, pairwise ~ light*nutrient*poly(time_days,2), at = list(time_days = 150), type ="response", adjust = "bonferroni")
+
+emms_SL150 <- cld(emms_SL_d150, alpha=0.05, Letters=letters, adjust="bonferroni")
+
+emms_SL_d150df <- as.data.frame(summary(emms_SL_d150))
+
+write.csv(emms_SL_d150df, file="output/emms_SL_d150df.csv")
+
+#bind all data
+emms_SL30_150 <- rbind(emms_SL30, emms_SL60, emms_SL90, 
+                       emms_SL120, emms_SL150)
+
+emms_SL30_150 <- emms_SL30_150 %>%
+  unite("trtmnt", light, nutrient) %>%
+  mutate_at(vars(trtmnt, time_days), factor)
+
+emms_SL30_150$time_days <- factor(emms_SL30_150$time_days, levels = c(150, 120, 90, 60, 30))
+
+save(emms_SL30_150, file = "output/emms_SLplot.RData")
+
+#Fig2b: Pointrange plot
+emms_plot1 <-ggplot(emms_SL30_150, aes(x=trtmnt, y=response))+
+  geom_pointrange(aes(ymin = asymp.LCL, ymax = asymp.UCL, color=trtmnt)) +
+  facet_grid(rows = vars(time_days))+
+  scale_color_frontiers()+
+  geom_text(aes(label = .group), vjust = -0.5, hjust = 0.5, size = 10/.pt) + 
+  coord_flip()+
+  labs(x= "Light:Nutrient:Time", y = "Estimated ShLength (mm)")+
+  theme_pubr() +
+  theme(axis.text.y = element_blank(),
+        legend.position = c(0.8,0.2))
+```
+
+## Assemble Fig2
+
+```{r}
+library(patchwork)
+#plot1 from part 3
+#assembly plot for fig3
+fig2 <- (plot1|emms_plot1) + plot_annotation(tag_levels = "a")
+```
+
+## GLMM for specifc growth rate changes over time
+
+```{r}
+#load
+load(file="output/growth_rates.RData")
+set.seed(1234)
+
+#since sgr also not conform to normality, glmm was used
+#similar to SL growth, time was considered as polynomial 
+#full model
+glmm_sgr <- glmer(sgr_t ~ light*nutrient*poly(time_days,2) 
+                  + (1|tank), family = Gamma(link ="log"),
+                    data =growth_rate_changes_long, 
+                  control = glmerControl(optimizer = "bobyqa", 
+                                         optCtrl = list(maxfun = 1e5)))
+#model comparison
+glmm_sgr_no_3way <- glmer(sgr_t ~ (light + nutrient + poly(time_days, 2))^2 
+                         + (1 | tank),
+                         family = Gamma(link = "log"),
+                         data = growth_rate_changes_long,
+                         control = glmerControl(optimizer = "bobyqa", 
+                                                optCtrl = list(maxfun = 1e5)))
+#no 3 way
+glmm_sgr_lightnutrient <- glmer(sgr_t ~ light*nutrient + (1 | tank),
+                       family = Gamma(link = "log"),
+                       data = growth_rate_changes_long,
+                       control = glmerControl(optimizer = "bobyqa", 
+                                              optCtrl = list(maxfun = 1e5)))
+#light and time
+glmm_sgr_lighttime <- glmer(sgr_t ~ light*poly(time_days,2) + (1 | tank),
+                       family = Gamma(link = "log"),
+                       data = growth_rate_changes_long,
+                       control = glmerControl(optimizer = "bobyqa", 
+                                              optCtrl = list(maxfun = 1e5)))
+#nutrient and time
+glmm_sgr_nutrienttime <- glmer(sgr_t ~ nutrient*poly(time_days,2) + (1 | tank),
+                       family = Gamma(link = "log"),
+                       data = growth_rate_changes_long,
+                       control = glmerControl(optimizer = "bobyqa", 
+                                              optCtrl = list(maxfun = 1e5)))
+#Compute AIC
+AIC_sgr <- AIC(glmm_sgr, glmm_sgr_no_3way,glmm_sgr_lightnutrient, 
+              glmm_sgr_lighttime, glmm_sgr_nutrienttime)
+
+#glmm_sgr_nutrienttime was selected with lowest AIC
+
+#Compare AIC model with delta AIC
+models <- list(full= glmm_sgr, no_3way = glmm_sgr_no_3way,
+               light_nutrient = glmm_sgr_lightnutrient, 
+              light_time = glmm_sgr_lighttime, 
+              nutrient_time = glmm_sgr_nutrienttime)
+aic_values <- sapply(models, AIC)
+delta_AIC <- aic_values - min(aic_values)
+sgrmodel_AIC_comp <- data.frame(Model = names(models), AIC = aic_values, delta_AIC = delta_AIC)
+
+#write csv as output
+write.csv(sgrmodel_AIC_comp, file="output/sgrmodel_AIC_comp_SL.csv")
+
+# Summary of the model
+summary(glmm_sgr_nutrienttime)
+
+#summarise with gtsummary table format
+glmm_sgr_summary <- tbl_regression(glmm_sgr_nutrienttime)
+
+#use sjPLot to extract the result on random effect
+tab_model(glmm_sgr_nutrienttime)
+
+#use x2 statistic to assess significance of fixed effects either
+#likelihood ratio tests (LRT) to compared reduced model and full model
+#Wald tests for each fixed effects
+
+#ANOVA for nutrient-time model
+Anova(glmm_sgr_nutrienttime, type =3)
+
+#all time points, specifically, at 30, 60, 120, 180
+emms_sgr_all<- emmeans(glmm_sgr_nutrienttime, pairwise ~ nutrient*poly(time_days,2), at = list(time_days = c(30,60,90,120,150)), type ="response", adjust = "bonferroni")
+#alot of significant due to the fact that time is a significant effect on growth
+
+summary(emms_sgr_all)
+
+#extract by time point, first day 30
+emms_sgr_d30<- emmeans(glmm_sgr_nutrienttime, pairwise ~ nutrient*poly(time_days,2), at = list(time_days = 30), type ="response", adjust = "bonferroni")
+
+emms_sgr30 <- cld(emms_sgr_d30, alpha=0.05, Letters=letters, adjust="bonferroni")
+
+#extract by time point, first day 60
+emms_sgr_d60<- emmeans(glmm_sgr_nutrienttime, pairwise ~ nutrient*poly(time_days,2), at = list(time_days = 60), type ="response", adjust = "bonferroni")
+
+emms_sgr60 <- cld(emms_sgr_d60, alpha=0.05, Letters=letters, adjust="bonferroni")
+
+#extract by time point, first day 90
+emms_sgr_d90<- emmeans(glmm_sgr_nutrienttime, pairwise ~ nutrient*poly(time_days,2), at = list(time_days = 90), type ="response", adjust = "bonferroni")
+
+emms_sgr90 <- cld(emms_sgr_d90, alpha=0.05, Letters=letters, adjust="bonferroni")
+
+#extract by time point, first day 120
+emms_sgr_d120<- emmeans(glmm_sgr_nutrienttime, pairwise ~ nutrient*poly(time_days,2), at = list(time_days = 120), type ="response", adjust = "bonferroni")
+
+emms_sgr120 <- cld(emms_sgr_d120, alpha=0.05, Letters=letters, adjust="bonferroni")
+
+#extract by time point, first day 150
+emms_sgr_d150<- emmeans(glmm_sgr_nutrienttime, pairwise ~ nutrient*poly(time_days,2), at = list(time_days = 150), type ="response", adjust = "bonferroni")
+
+emms_sgr150 <- cld(emms_sgr_d150, alpha=0.05, Letters=letters, adjust="bonferroni")
+
+#bind all cld data
+emms_sgr_all<- rbind(emms_sgr30, emms_sgr60, emms_sgr90, 
+                       emms_sgr120, emms_sgr150)
+
+emms_sgr_all <- emms_sgr_all %>%
+  unite("trtmnt", nutrient) %>%
+  mutate_at(vars(trtmnt, time_days), factor)
+
+emms_sgr_all$time_days <- factor(emms_sgr_all$time_days, levels = c(150, 120, 90, 60, 30))
+
+save(emms_sgr_all, file="output/emms_sgrPlot.RData")
+#
+emms_plot2 <-ggplot(emms_sgr_all, aes(x=trtmnt, y=response))+
+  geom_pointrange(aes(ymin = asymp.LCL, ymax = asymp.UCL, color=trtmnt)) +
+  facet_grid(rows = vars(time_days))+
+  scale_color_npg() +
+  geom_text(aes(label = .group), vjust = -0.5, hjust = 0.5, size = 10/.pt) + 
+  coord_flip()+
+  labs(x= "Nutrient:Time", y = "Estimated SGR (day-1)")+
+  theme_pubr() +
+  theme(axis.text.y = element_blank(),
+        legend.position = c(0.8,0.8))
+```
+
+## Assemble Fig3
+
+```{r}
+library(patchwork)
+#assembly plot for fig3
+fig3 <- (plot3|emms_plot2) + plot_annotation(tag_levels = "a")
+```
+
+## GLMM for photosynthetic efficiency
+
+```{r}
+load(file="output/pam.RData")
+
+#full model
+glmm_pam <- glmer(Y2 ~ light*nutrient*poly(time_days,2) + (1|tank), 
+                     family = Gamma(link ="log"),
+                    data =pam, 
+                  control = glmerControl(optimizer = "bobyqa", 
+                                         optCtrl = list(maxfun = 1e5)))
+
+#model comparison
+glmm_pam_no_3way <- glmer(Y2 ~ (light + nutrient + poly(time_days, 2))^2 
+                         + (1 | tank),
+                         family = Gamma(link = "log"),
+                         data = pam,
+                         control = glmerControl(optimizer = "bobyqa", 
+                                                optCtrl = list(maxfun = 1e5)))
+#light and nutrient
+glmm_pam_lightnutrient <- glmer(Y2 ~ light*nutrient + (1 | tank),
+                       family = Gamma(link = "log"),
+                       data = pam,
+                       control = glmerControl(optimizer = "bobyqa", 
+                                              optCtrl = list(maxfun = 1e5)))
+#light and time
+glmm_pam_lighttime <- glmer(Y2 ~ light*poly(time_days,2) + (1 | tank),
+                       family = Gamma(link = "log"),
+                       data = pam,
+                       control = glmerControl(optimizer = "bobyqa", 
+                                              optCtrl = list(maxfun = 1e5)))
+#nutrient and time
+glmm_pam_nutrienttime <- glmer(Y2 ~ nutrient*poly(time_days,2) + (1 | tank),
+                       family = Gamma(link = "log"),
+                       data = pam,
+                       control = glmerControl(optimizer = "bobyqa", 
+                                              optCtrl = list(maxfun = 1e5)))
+#AIC run
+AIC_pam <- AIC(glmm_pam, glmm_pam_no_3way,glmm_pam_lightnutrient, 
+              glmm_pam_lighttime, glmm_pam_nutrienttime)
+#full model, with 3-way interaction with lowest AIC, hence this model is selected
+
+#to formally compare AIC model with delta AIC
+models <- list(full= glmm_sgr, no_3way = glmm_sgr_no_3way,
+               light_nutrient = glmm_sgr_lightnutrient, 
+              light_time = glmm_sgr_lighttime, 
+              nutrient_time = glmm_sgr_nutrienttime)
+aic_values <- sapply(models, AIC)
+delta_AIC <- aic_values - min(aic_values)
+sgrmodel_AIC_comp <- data.frame(Model = names(models), AIC = aic_values, delta_AIC = delta_AIC)
+
+#write csv as output
+write.csv(sgrmodel_AIC_comp, file="output/sgrmodel_AIC_comp_SL.csv")
+
+#summarise with gtsummary table format
+glmm_pam_summary <- tbl_regression(glmm_pam)
+
+#use sjPLot to extract the result on random effect
+tab_model(glmm_pam)
+
+#use x2 statistic to assess significance of fixed effects either
+#likelihood ratio tests (LRT) to compared reduced model and full model
+#Wald tests for each fixed effects
+Anova(glmm_pam, type = 3)
+#
+
+#extract by time point, first day 30
+emms_pam_d30<- emmeans(glmm_pam, pairwise ~ light*nutrient*poly(time_days,2), at = list(time_days = 30), type ="response", adjust = "bonferroni")
+
+emms_pam30 <- cld(emms_pam_d30, alpha=0.05, Letters=letters, adjust="bonferroni")
+
+#extract by time point, first day 60
+emms_pam_d60<- emmeans(glmm_pam, pairwise ~ light*nutrient*poly(time_days,2), at = list(time_days = 60), type ="response", adjust = "bonferroni")
+
+emms_pam60 <- cld(emms_pam_d60, alpha=0.05, Letters=letters, adjust="bonferroni")
+
+#extract by time point, first day 90
+emms_pam_d90<- emmeans(glmm_pam, pairwise ~ light*nutrient*poly(time_days,2), at = list(time_days = 90), type ="response", adjust = "bonferroni")
+
+emms_pam90 <- cld(emms_pam_d90, alpha=0.05, Letters=letters, adjust="bonferroni")
+
+#extract by time point, first day 120
+emms_pam_d120<- emmeans(glmm_pam, pairwise ~ light*nutrient*poly(time_days,2), at = list(time_days = 120), type ="response", adjust = "bonferroni")
+
+emms_pam120 <- cld(emms_pam_d120, alpha=0.05, Letters=letters, adjust="bonferroni")
+
+#extract by time point, first day 30
+emms_pam_d150<- emmeans(glmm_pam, pairwise ~ light*nutrient*poly(time_days,2), at = list(time_days = 150), type ="response", adjust = "bonferroni")
+
+emms_pam150 <- cld(emms_pam_d150, alpha=0.05, Letters=letters, adjust="bonferroni")
+
+#rbind all the dataset
+emms_pam_all <- rbind(emms_pam30, emms_pam60, emms_pam90, 
+                       emms_pam120, emms_pam150)
+
+emms_pam_all <- emms_pam_all %>%
+  unite("trtmnt", light, nutrient) %>%
+  mutate_at(vars(trtmnt, time_days), factor)
+
+emms_pam_all$time_days <- factor(emms_pam_all$time_days, levels = c(150, 120, 90, 60, 30))
+
+save(emms_pam_all, file ="output/emms_pamPlot.RData")
+
+#
+emms_plot3 <-ggplot(emms_pam_all, aes(x=trtmnt, y=response))+
+  geom_pointrange(aes(ymin = asymp.LCL, ymax = asymp.UCL, color=trtmnt)) +
+  facet_grid(rows = vars(time_days))+
+  scale_color_frontiers()+
+  geom_text(aes(label = .group), vjust = -0.5, hjust = 0.5, size = 10/.pt) + 
+  coord_flip()+
+  labs(x= "Light:Nutrient:Time", y = "Estimated Fv/Fm")+
+  theme_pubr() +
+  theme(axis.text.y = element_blank(),
+        legend.position = c(0.8,0.8))
+```
+
+## Assemble Fig5
+
+```{r}
+library(patchwork)
+#assembly plot for fig3
+fig5 <- (plot2|emms_plot3) + plot_annotation(tag_levels = "a")
+```

@@ -1,59 +1,69 @@
-# Part 2: Nutrient level
+---
+title: "Part2-Nutrient_Level"
+author: "LeeLK"
+date: "2025-04-07"
+output: html_document
+---
 
-## Load data
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+# Part 2: Nutrient level
+```{r}
 nutrient_level <- read_excel("your/working/directory/analysis_data2.xlsx", sheet = "nutrient_level")
 
-# Library
+#ibrary
 library(tidyverse)
 library(ggpubr)
 library(patchwork)
 library(dlookr)
 
-### NH4 and NO3 in treatment tank
+# NH4 and NO3 in treatment tank
 nutrient_level <- nutrient_level %>%
   unite("trtmnt", par:Nutrient, remove=FALSE)
 
-#name trtmnt as factor
+# name trtmnt as factor
 nutrient_level$trtmnt <- as.factor(nutrient_level$trtmnt)
 
-#nutrient level, "before", by date
+# nutrient level, "before", by date
 nutrient_level %>% filter(before_after %in% "before") %>%
   group_by (date) %>%
   describe () %>%
   mutate (mean = round(mean,3)) %>%
   select (described_variables, date, mean)
 
-#nutrient level, "after", by date
+# nutrient level, "after", by date
 nutrient_level %>% filter(before_after %in% "after") %>%
   group_by (date, Nutrient) %>%
   describe () %>%
   mutate (mean = round(mean,3)) %>%
   select (described_variables, date, Nutrient, mean)
 
-#nutrient level, overall, ambient
+# nutrient level, overall, ambient
 nutrient_level %>% 
   filter(date > as.Date("2023-08-18") & before_after%in% "before") %>%
   describe () %>%
   mutate (mean = round(mean,3))
 
-#nutrient level, overall, enriched
+# nutrient level, overall, enriched
 nutrient_level %>% 
   filter(date > as.Date("2023-08-18") & before_after%in% "after") %>%
   group_by(Nutrient) %>%
   describe () %>%
   mutate (mean = round(mean,3))
 
-#filter only after 2023-08-18, and only use "after"
+# filter only after 2023-08-18, and only use "after"
 nutrient_level_after <- nutrient_level %>% 
   filter(date > as.Date("2023-08-18") & before_after%in% "after")
 
-#descriptive stats
+# descriptive stats
 nutrient_level_after %>%
   group_by(Nutrient) %>%
   describe () %>%
   mutate (mean = round(mean,3))
 
-#to show nutrient level after enriched
+# To show nutrient level after enriched
+# ammonium
 s1a <- ggplot(nutrient_level_after, aes(x = factor(date), 
                                                   y = NH4, fill = Nutrient)) +
   geom_boxplot(position = position_dodge(0.8), width = 0.6)+
@@ -73,6 +83,7 @@ s1b <- ggplot(nutrient_level_after, aes(x = factor(date),
   labs(y = 'NO3 Concentration (umol/L)')+
   theme_pubr()
 
-#plot_assembly
+# Plot_assembly
 figS1 <- s1a + s1b + plot_layout(guides= 'collect') &
   theme(legend.position = "top")
+```
