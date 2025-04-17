@@ -28,13 +28,13 @@ library(sjPlot)
 Use shell length (SL)
 ```{r}
 #load data
-growth_SL <- read_excel("C:/Users/yukin/Desktop/MyWork2025/M6. Tcro_CEA/2. DataAnalysis/Tcro_CEA/analysis_data2.xlsx", sheet = "growth_SL")
+growth_SL <- read_excel("C:/your/directory/analysis_data2.xlsx", sheet = "growth_SL")
 
 # Make sure all the variable is read as factor 
 growth_SL <- growth_SL %>%
   mutate_at(vars(tank, light, nutrient), as.factor)
 
-#pivot long, and change D1...D176 to days
+#pivot long, and change D1...D178 to days
 growth_SL_long <- growth_SL %>%
   pivot_longer(cols = starts_with("D"), 
                names_to = "time_days", values_to = "SL") %>%
@@ -130,8 +130,8 @@ save(mean_growth_SL, file="temp_output/mean_growth_SL.RData")
 
 # Overall specific growth rate
 overall_growth_rate <- mean_growth_SL %>% 
-  mutate(sgr_overall =round(((log(D176)-log(D1))/176)*100, 3)) %>%
-  mutate(gr_day =round((((D176-D1))/176), 3)) %>%
+  mutate(sgr_overall =round(((log(D178)-log(D0))/178)*100, 3)) %>%
+  mutate(gr_day =round((((D178-D0))/176), 3)) %>%
   mutate(gr_month = gr_day*30)%>%
   select(tank, light, nutrient, sgr_overall, gr_day,gr_month) 
 # Calculate descriptive stats
@@ -147,16 +147,16 @@ overall_growth_rate %>%
 
 # Calculate growth rate changes over time
 growth_rate_changes <- mean_growth_SL %>% 
-  mutate(t_14=((log(D14)-log(D1))/14)*100) %>%
-  mutate(t_28=((log(D28)-log(D1))/28)*100) %>%
-  mutate(t_42=((log(D42)-log(D1))/42)*100) %>%
-  mutate(t_56=((log(D56)-log(D1))/56)*100) %>%
-  mutate(t_70=((log(D70)-log(D1))/70)*100) %>%
-  mutate(t_98=((log(D98)-log(D1))/98)*100) %>%
-  mutate(t_126=((log(D126)-log(D1))/126)*100) %>%
-  mutate(t_154=((log(D154)-log(D1))/154)*100) %>%
-  mutate(t_176=((log(D176)-log(D1))/178)*100) %>%
-  select(tank:nutrient, t_14:t_176)
+  mutate(t_14=((log(D14)-log(D0))/14)*100) %>%
+  mutate(t_28=((log(D28)-log(D0))/28)*100) %>%
+  mutate(t_42=((log(D42)-log(D0))/42)*100) %>%
+  mutate(t_56=((log(D56)-log(D0))/56)*100) %>%
+  mutate(t_70=((log(D70)-log(D0))/70)*100) %>%
+  mutate(t_98=((log(D98)-log(D0))/98)*100) %>%
+  mutate(t_126=((log(D126)-log(D0))/126)*100) %>%
+  mutate(t_154=((log(D154)-log(D0))/154)*100) %>%
+  mutate(t_178=((log(D178)-log(D0))/178)*100) %>%
+  select(tank:nutrient, t_14:t_178)
 
 
 # Pivot long and convert the t_14 and etc, to respective time in days
